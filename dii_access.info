@@ -1,0 +1,4 @@
+name = DII Access
+description = Access control for nodes not controlled by Oragnic Groups.
+core = 7.x
+dependencies[] = og

@@ -1,0 +1,125 @@
+<?php
+/**
+ * @file
+ * Module provides 'View' access control to content 
+ * not controlled by Organic Groups Access control.
+ * As opposed to Content_access, this module does not
+ * attempt to control all content.
+ */
+
+/**
+ * Implements hook_permission(). 
+ */
+function dii_access_permissions() {
+  return array(
+    'administer dii visibility' => array(
+      'title' => t('Administer DII Visibility'),
+      'description' => t('Configure node visibility'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_form_node_form_alter().
+ */
+function dii_access_form_node_form_alter(&$form, $form_state) {
+  if (user_access('administer dii visibility')) {
+    $form['dii_visibility'] = array(
+      '#type' => 'fieldset',
+      '#title' => t('Visibility Settings'),
+      '#collapsible' => TRUE,
+      '#collapsed' => TRUE,
+      '#group' => 'additional_settings',
+      '#attached' => array(
+        'js' => array(drupal_get_path('module', 'dii_access') . '/dii_access.js'),    
+      ),
+      '#attributes' => array('class' => array('dii-access-form')),
+    );
+    
+    $visibility = isset($form['#node']->nid) ? dii_access_load_grants($form['#node']->nid) : array();
+    $form['dii_visibility']['dii_visible_roles'] = array(
+        '#type' => 'checkboxes',
+        '#title' => t('Show node for specific roles'),
+        '#default_value' => isset($visibility) ? $visibility : array(),
+        '#options' => array_map('check_plain', user_roles()),
+        '#description' => t('Show this node only for the selected role(s). If you select no roles, the node will be visible to all users.  If this node
+            belongs to an Organic Group, the visibility settings will be ignore.'),
+    );
+  }
+}
+
+/**
+ * Compute the access for the node 
+ */
+function dii_access_load_grants($nid) {
+  $visibility = array();
+  $roles = user_roles();
+  $realms = array();
+  foreach ($roles as $key => $role) {
+    $realms[] = 'dii_node_view:' . $key;
+  }
+  
+  $query = db_select('node_access', 'na')
+    ->fields('na', array('nid', 'gid', 'realm' , 'grant_view'))
+    ->condition('nid', $nid, '=')
+    ->condition('realm', $realms, 'IN')
+    ->execute();
+  
+  while($result = $query->fetchAssoc()) {
+    if ($result['grant_view'] == 1) {
+      $visibility[] = $result['gid'];
+    }
+  }  
+  return $visibility;
+}
+
+/**
+ * Implements hook_node_grants();
+ */
+function dii_access_node_grants($account, $op) {
+  $grants = array('dii_node_author' =>array($account->uid));
+  if ($op == 'view') {
+    foreach ($account->roles as $key => $role) {
+      $grants['dii_node_view:' . $key] = array($key);
+    }
+  }
+  return $grants;
+}
+
+/**
+ * Implements hook_node_access_records().
+ */
+function dii_access_node_access_records($node) {
+  // make sure dii_visible_roles is set, and the node is not part of OG group 
+  $group = og_get_entity_groups('node', $node);
+  if (isset($node->dii_visible_roles) && count(og_get_entity_groups('node', $node)) == 0) {
+    // check to see if dii_visible_roles has anything checked
+    $roles = user_roles();
+    $count = array_count_values($node->dii_visible_roles);
+    if ($count[0] == count($roles)) {
+      return;
+    }
+    $grants = array();
+    foreach ($roles as $key => $role) {
+      if (in_array($key, $node->dii_visible_roles)) {
+        $grants[] = array(
+          'realm' => 'dii_node_view:' . $key,
+          'gid' => $key,
+          'grant_view' => 1,
+          'grant_update' => 0,
+          'grant_delete' => 0,
+          'priority' => 0,
+        );
+      }
+    }
+    $grants[] = array(
+      'realm' => 'dii_node_author',
+      'gid' => $node->uid,
+      'grant_view' => 1,
+      'grant_update' => 1,
+      'grant_delete' => 1,
+      'priority' => 0,
+    );
+    return $grants;
+  }
+}
