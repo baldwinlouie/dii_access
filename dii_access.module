@@ -10,7 +10,7 @@
 /**
  * Implements hook_permission(). 
  */
-function dii_access_permissions() {
+function dii_access_permission() {
   return array(
     'administer dii visibility' => array(
       'title' => t('Administer DII Visibility'),
